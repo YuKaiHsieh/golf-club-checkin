@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -11,15 +12,15 @@
     body {
       font-family: Arial, sans-serif;
       background: #f3f5f7;
-      padding: 30px 15px;
+      padding: 24px 14px;
       text-align: center;
     }
 
     .card {
       max-width: 420px;
-      margin: 30px auto;
-      padding: 25px;
-      background: white;
+      margin: 24px auto;
+      padding: 24px;
+      background: #fff;
       border-radius: 16px;
       box-shadow: 0 4px 15px #00000015;
     }
@@ -27,7 +28,7 @@
     input, button {
       box-sizing: border-box;
       width: 100%;
-      padding: 12px;
+      padding: 13px;
       margin-top: 12px;
       font-size: 16px;
       border-radius: 8px;
@@ -38,10 +39,20 @@
     }
 
     button {
-      border: none;
+      border: 0;
       background: #16865c;
       color: white;
       cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+    }
+
+    #status {
+      white-space: pre-wrap;
+      line-height: 1.7;
+      overflow-wrap: anywhere;
     }
   </style>
 </head>
@@ -49,21 +60,35 @@
 <body>
   <div class="card">
     <h2>⛳ 高爾夫球社簽到</h2>
-    <p id="status">正在初始化 LINE，請稍候……</p>
+    <p id="status">正在初始化 LINE……</p>
 
     <div id="form" hidden>
-      <input id="name" placeholder="請輸入姓名">
-      <input id="studentNo" placeholder="請輸入學號／社員編號">
-      <button id="signIn">綁定並簽到</button>
+      <input
+        id="name"
+        autocomplete="name"
+        placeholder="請輸入社員姓名"
+      >
+
+      <input
+        id="studentNo"
+        autocomplete="off"
+        placeholder="請輸入學號／社員編號"
+      >
+
+      <button id="signIn">確認簽到</button>
     </div>
   </div>
 
   <script>
     const LIFF_ID = "2012179452-3SiWYXs6";
+    const API_URL =
+      "https://golf-club-checkin-api.hsieh0960904.workers.dev";
+
+    const statusEl = document.getElementById("status");
+    const formEl = document.getElementById("form");
+    const buttonEl = document.getElementById("signIn");
 
     async function start() {
-      const status = document.getElementById("status");
-
       try {
         await liff.init({ liffId: LIFF_ID });
 
@@ -72,19 +97,82 @@
           return;
         }
 
-        const profile = await liff.getProfile();
+        if (!liff.getIDToken()) {
+          throw new Error(
+            "無法取得 LINE ID Token，請確認 openid 權限"
+          );
+        }
 
-        status.textContent =
-          "LINE 初始化成功！你好，" + profile.displayName;
+        statusEl.textContent =
+          "LINE 登入成功，請輸入社員姓名和學號。";
 
-        document.getElementById("form").hidden = false;
-
-      } catch (err) {
-        console.error(err);
-        status.textContent =
-          "初始化失敗：" + (err.message || String(err));
+        formEl.hidden = false;
+      } catch (error) {
+        console.error(error);
+        statusEl.textContent =
+          "LINE 初始化失敗：" +
+          (error.message || String(error));
       }
     }
+
+    buttonEl.addEventListener("click", async () => {
+      const name =
+        document.getElementById("name").value.trim();
+
+      const studentNo =
+        document.getElementById("studentNo").value.trim();
+
+      if (!name || !studentNo) {
+        statusEl.textContent = "請先填寫姓名和學號。";
+        return;
+      }
+
+      const idToken = liff.getIDToken();
+
+      if (!idToken) {
+        statusEl.textContent =
+          "無法取得 LINE 登入憑證，請重新開啟簽到頁面。";
+        return;
+      }
+
+      buttonEl.disabled = true;
+      statusEl.textContent = "正在驗證社員資料……";
+
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            idToken: idToken,
+            name: name,
+            studentNo: studentNo
+          })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+          throw new Error(
+            result.message || "簽到失敗，請稍後再試。"
+          );
+        }
+
+        statusEl.textContent =
+          result.message +
+          "\n姓名：" + result.name +
+          "\n簽到時間：" + result.signTime;
+      } catch (error) {
+        console.error(error);
+
+        statusEl.textContent =
+          "簽到失敗：" +
+          (error.message || "請檢查網路或聯絡管理員。");
+      } finally {
+        buttonEl.disabled = false;
+      }
+    });
 
     start();
   </script>
